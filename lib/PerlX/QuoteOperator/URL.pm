@@ -1,19 +1,17 @@
 package PerlX::QuoteOperator::URL;
 use strict;
 use warnings;
-use PerlX::QuoteOperator ();
+use base qw(PerlX::QuoteOperator);
 use LWP::Simple ();
 
 our $VERSION = '0.02';
 
 sub import {
     my ($class, $name) = @_;
-    
     my $caller = caller;
     my $code   = sub ($) { LWP::Simple::get( $_[0] ) };
 
-    my $ctx = PerlX::QuoteOperator->new;
-    $ctx->import( $name || 'qURL', { -emulate => 'qq', -with => $code }, $caller );
+    $class->SUPER::import($name || 'qURL', { -emulate => 'qq', -with => $code, -in => $caller });
 }
 
 1;
@@ -47,7 +45,7 @@ For now here is another example:
     say decode_json( qh{ http://twitter.com/statuses/show/6592721580.json } )->{text};
 
     # => "He nose the truth."
-    
+
 
 =head1 EXPORT
 
@@ -56,7 +54,7 @@ By default 'qURL' is exported to calling package/program.
 This can be changed by providing a name of your own choice:
 
     use PerlX::QuoteOperator::URL 'q_http_request';
-    
+
 
 =head1 FUNCTIONS
 

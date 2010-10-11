@@ -7,17 +7,15 @@ my $expected = join q{ }, @list;
 
 use PerlX::QuoteOperator qwuc => { -emulate => 'qw', -with => sub (@) { @_ } };
 
-# multi-line - only possible at this point as long as -parse not set
+# multi-line
 is_deeply [ qwuc{
-    foo 
-    bar 
+    foo
+    bar
     baz}], \@list, 'advanced qw multi-line test';
 
-# qw like this would fail without -parser set
-use PerlX::QuoteOperator qwS => { 
-    -emulate => 'qw', 
-    -with    => sub (@) { join q{ }, @_ }, 
-    -parser  => 1 
+use PerlX::QuoteOperator qwS => {
+    -emulate => 'qw',
+    -with    => sub (@) { join q{ }, @_ },
 };
 is qwS/foo bar baz/, $expected, 'advanced qw parser test';
 
