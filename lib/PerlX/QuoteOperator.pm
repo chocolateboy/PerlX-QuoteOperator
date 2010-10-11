@@ -22,7 +22,8 @@ sub _isa($$) {
 
 # XXX document the caller param
 sub import {
-    my ($class, $name, $param) = @_;
+    # XXX keep the trailing caller API for backwards compat with e.g. Junction::Quotelike
+    my ($class, $name, $param, $caller) = @_;
 
     # not importing unless name & parameters provided (TBD... test these)
     return unless $name && $param;
@@ -33,7 +34,7 @@ sub import {
     Carp::confess('-with param is not a CODE ref') unless (_isa($sub, 'CODE'));
 
     my $self = ref($class) ? $class : $class->new;
-    my $caller = $param->{ -in } || caller;
+    $caller ||= $param->{ -in } || caller;
 
     # quote-like operator to emulate.  Default is qq// unless -emulate is provided
     $self->{ $qtype } = $param->{ -emulate } || 'qq';
@@ -267,6 +268,8 @@ quote-like sub.
 =head1 SEE ALSO
 
 =over 4
+
+=item * L<Junction::Quotelike>
 
 =item * L<PerlX::QuoteOperator::URL>
 

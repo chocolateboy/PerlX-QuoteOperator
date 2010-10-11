@@ -18,3 +18,4 @@ t/precedence.t
 t/qo-URL.t
 t/qw.t
 TODO
+Makefile.PL
