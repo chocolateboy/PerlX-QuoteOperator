@@ -8,7 +8,7 @@ use constant WIN32 => $^O eq 'MSWin32';
 my $tmpfile = 'qURL';
 my $tmp  = Directory::Scratch->new;
 
-local $, = '!'; # touch uses the value of $, 
+local $, = '!'; # touch uses the value of $,
 
 my $file = $tmp->touch( $tmpfile, stuff() );
 

@@ -15,6 +15,6 @@ t/boilerplate.t
 t/pod-coverage.t
 t/pod.t
 t/precedence.t
-t/qw.t
 t/qo-URL.t
+t/qw.t
 TODO

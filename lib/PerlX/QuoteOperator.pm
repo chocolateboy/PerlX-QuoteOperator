@@ -3,46 +3,61 @@ use strict;
 use warnings;
 use 5.008001;
 
+use Carp ();
 use Devel::Declare ();
+use Scalar::Util ();
 use base 'Devel::Declare::Context::Simple';
 
 our $VERSION = '0.02';
+# we subclass Devel::Declare::Context::Simple and store our settings
+# in fields in its hash, so make sure they're namespaced
 our $qtype   = __PACKAGE__ . '::qtype';
-our $parser  = __PACKAGE__ . '::parser';
 our $debug   = __PACKAGE__ . '::debug';
 
+# return true if $ref ISA $class - works with non-references, unblessed references and objects
+sub _isa($$) {
+    my ($ref, $class) = @_;
+    return Scalar::Util::blessed($ref) ? $ref->isa($class) : ref($ref) eq $class;
+}
+
+# XXX document the caller param
 sub import {
-    my ($self, $name, $param, $caller) = @_;
-    
-    # not importing unless name & parameters provided (TBD... check these)
+    my ($class, $name, $param) = @_;
+
+    # not importing unless name & parameters provided (TBD... test these)
     return unless $name && $param;
-    
-    # called directly and not via a PerlX::QuoteOperator::* module
-    unless ($caller) {
-        $caller = caller;
-        $self   = __PACKAGE__->new;
-    }
-    
-    # quote like operator to emulate.  Default is qq// unless -emulate is provided
-    $self->{ $qtype } = $param->{ -emulate } || 'qq';  
-    
-    # invoke my heath robinson parser or not?  
-    # (not using parser means just insert quote operator and leave to Perl)
-    $self->{ $parser } = $param->{ -parser } || 0;
-    
+
+    my $sub = $param->{ -with };
+
+    Carp::confess('no -with param supplied') unless ($sub);
+    Carp::confess('-with param is not a CODE ref') unless (_isa($sub, 'CODE'));
+
+    my $self = ref($class) ? $class : $class->new;
+    my $caller = $param->{ -in } || caller;
+
+    # quote-like operator to emulate.  Default is qq// unless -emulate is provided
+    $self->{ $qtype } = $param->{ -emulate } || 'qq';
+
     # debug or not to debug... that is the question
     $self->{ $debug } = $param->{ -debug } || 0;
 
     # Create D::D trigger for $name in calling program
     Devel::Declare->setup_for(
-        $caller, { 
+        $caller, {
             $name => { const => sub { $self->parser(@_) } },
         },
     );
-    
+
     no strict 'refs';
-    *{$caller.'::'.$name} = $param->{ -with };
+    *{$caller.'::'.$name} = $sub;
 }
+
+# extract the quote, then re-insert it wrapped in parentheses e.g.
+#
+#     qURL|http://www.example.com| => qURL(q|http://www.example.com|)
+#
+# this ensures custom quotes have the same precedence as builtins
+# (see t/precedence.t)
 
 sub parser {
     my $self = shift;
@@ -52,28 +67,54 @@ sub parser {
 
     my $line = $self->get_linestr;   # get me current line of code
 
-    if ( $self->{ $parser } ) {
-        # find start & end of quote operator
-        my $pos   = $self->offset;        # position just after "http"
-        my $delim = substr( $line, $pos, 1 );
-        do { $pos++ } until substr( $line, $pos, 1 ) eq $delim;
-        
-        # and wrap sub() around quote operator (needed for lists)
-        substr( $line, $pos + 1, 0 )      = ')';
-        substr( $line, $self->offset, 0 ) = '(' . $self->{ $qtype };
-        
-    }
-    else {
-        # Can rely on Perl parser for everything.. just insert quote-like operator
-        substr( $line, $self->offset, 0 ) = q{ } . $self->{ $qtype };
-    }
+    # $offset points to the position after the custom quote token and any
+    # trailing spaces e.g.
+    #
+    #     qURL (http://www.example.com) . "foobar"
+    #          ^
+    #          |
 
-    # eg: qURL(http://www.foo.com/baz) => qURL qq(http://www.foo.com/baz)
-    # pass back to parser
+    my $offset = $self->offset;
+
+    # toke_scan_str_flags() uses perl's builtin quote parser to extract a delimited
+    # string without inserting it into the parse tree; the two boolean flags after
+    # the offset ensure the quote 1) preserves any backslashes used to escape embedded
+    # delimiters and 2) includes the outer delimiters - i.e.
+    # the quote is returned verbatim
+
+    my $length = Devel::Declare::toke_scan_str_flags($offset, 1, 1);
+
+    # now 1) grab the quote from the temp variable perl stores it in internally,
+    # and 2) clear the temp variable so perl doesn't think it has a pending token
+
+    my $quote = Devel::Declare::get_lex_stuff;
+
+    Devel::Declare::clear_lex_stuff;
+
+    # The quote scanner above may have consumed multiple lines, so we need to update our
+    # line string to reflect any changes. The offset still points to the
+    # beginning of the quote
+
+    $line = $self->get_linestr;
+
+    # now we have the quoted string: remove all $length of its characters from the input buffer
+    # and replace them with the parenthesized, perl-quoted version.
+
+    substr($line, $offset, $length) = sprintf('(%s%s)', $self->{ $qtype }, $quote);
+
+    # et voila!
+    #
+    #     qURL (qq(http://www.example.com)) . "foobar"
+    #          ^
+    #          |
+    #
+    # perl is none the wiser, and continues on its merry way
+
+    # pass back to perl
     $self->set_linestr( $line );
     warn "$line\n" if $self->{ $debug };
 
-    return;
+    return; # i.e. return undef
 }
 
 
@@ -99,9 +140,9 @@ Create a quote-like operator which convert text to uppercase:
         -emulate => 'q', 
         -with    => sub ($) { uc $_[0] }, 
     };
-    
+
     say quc/do i have to $hout/;
-    
+
     # => DO I HAVE TO $HOUT
 
 
@@ -114,26 +155,32 @@ L<http://perldoc.perl.org/perlop.html#Quote-Like-Operators> :)
 
 But what it doesn't come with is some easy method to create your own quote-like operators :(
 
-This is where PerlX::QuoteOperator comes in.  Using the fiendish L<Devel::Declare> under its hood  
-it "tricks", sorry "helps!" the perl parser to provide new first class quote-like operators.
+This is where C<PerlX::QuoteOperator> comes in.  Using the fiendish L<Devel::Declare> under its hood,
+it "tricks" - sorry "helps!" - the perl parser to provide new first class quote-like operators.
 
 =head2 HOW DOES IT DO IT?
 
 The subterfuge doesn't go that deep.  If we take a look at the SYNOPSIS example:
 
     say quc/do i have to $hout/;
-    
-Then all PerlX::QuoteOperator actually does is convert this to the following before perl compiles it:
 
-    say quc q/do i have to $hout/;
-    
-Where 'quc' is a defined sub expecting one argument  (ie, sub ($) { uc $_[0] }  ).
+Then all C<PerlX::QuoteOperator> actually does is convert this to the following before perl compiles it:
 
-This approach allows PerlX::QuoteOperator to perform the very basic keyhole surgery on the code,
-ie. just put in the emulated quote-like operator between keyword & argument.
+    say quc(q/do i have to $hout/);
 
-However this approach does have caveats especially when qw// is being used!.  See CAVEATS.
-There is an alternaive parser when can be invoked,  see -parser Export parameter.
+C<PerlX::QuoteOperator> installs the sub supplied via the C<-with> option in the calling
+package (i.e. the package from which C<use PerlX::QuoteOperator ...> is called) under the
+name supplied in the first argument of the use statement.
+
+    use PerlX::QuoteOperator quc => {
+        -emulate => 'q',
+        -with    => sub($) { ... }, # installed as &{caller}::quc
+    };
+
+The number of arguments supplied to subs implementing custom quote operators is
+dependent on the number of arguments returned by the builtin they emulate and wrap (and the
+context in which the builtin is called); so, by default, a sub emulating C<q> or C<qq> will receive
+a single string, and a sub emulating C<qw> will receive a (possibly empty) list &c.
 
 =head2 WHY?
 
@@ -142,19 +189,19 @@ Bit like climbing Mount Everest... because we can!  ;-)
 Is really having something like:
 
     say quc/do i have to $hout/;
-    
+
 so much better than:
 
     say uc 'do i have to $hout';
-    
+
 or more apt this:
 
     say uc('do i have to $hout');
-    
-Probably not... at least in the example shown.  But things like this are certainly eye catching:
+
+Probably not... at least in the example shown.  But things like this are certainly eye-catching:
 
     use PerlX::QuoteOperator::URL 'qh';
-    
+
     my $content = qh( http://transfixedbutnotdead.com );   # does HTTP request
 
 And this:
@@ -166,17 +213,21 @@ And this:
 
     my %months = qwHash/Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec/;
 
-Certainly give the code aesthetic a good pause for thought.
+Or even this:
+
+    use Inline::V8;
+
+    my $foo = v8 { [ foo: "bar", baz: "quux" ] }->{foo};
 
 =head1 EXPORT
 
 By default nothing is exported:
 
     use PerlX::QuoteOperator;    # => imports nothing
-    
-Quote operator is imported when passed a name and options like so:
 
-    use PerlX::QuoteOperator quote_operator_name_i_want_to_use => { }   
+A quote operator is imported when the package is passed a name and a C<-with> option e.g.
+
+    use PerlX::QuoteOperator my_quote_operator => { -with => ... }
 
 A hashref is used to pass the options.
 
@@ -184,40 +235,23 @@ A hashref is used to pass the options.
 
 =head3 -emulate
 
-Which Perl quote-like operator required to emulate.  q, qq & qw have all been tested.
+Specifies the builtin quote operator that should be emulated. C<q>, C<qq> & C<qw> have all been tested.
 
-Default: emulates qq
+Default: emulates C<qq>.
 
 =head3 -with
 
-Your quote-like operator code reference / anon subroutine goes here.
-
-Remember to use subroutine prototype (if not using -parser option):
-
-    -with    => sub ($) { uc $_[0] }, 
+Supply an anonymous sub or code ref and it will be installed under the specified name.
 
 This is a mandatory parameter.
 
-=head3 -parser
+=head3 -in
 
-If set then alternative parser kicks in.   This parser currenly works on single line of code only
-and must use same delimeter for beginning and end of quote:
-
-    -parser => 1
-    
-When invoked this parser will take this:
-
-    quc/do i have to $hout/;
-
-And by finding the end of the quote will then encapulate it like so:
-
-    quc(q/do i have to $hout/);
-
-Default: Not using alternative parsing.
+The name of the package the quote operator should be installed into: defaults to the caller.
 
 =head3 -debug
 
-If set then prints (warn) the transmogrified line so that you can see what PerlX::QuoteOperator has done!
+If set then the transmogrified line is printed (using C<warn>) so that you can see what C<PerlX::QuoteOperator> has done!
 
     -debug => 1
 
@@ -227,26 +261,16 @@ Default:  No debug.
 
 =head2 import
 
-Module import sub.
-
-=head2 parser
-
-When keyword (defined quote operator) is triggered then this sub uses L<Devel::Declare> 
-to provide necessary keyhole surgery/butchery on the code to make it valid Perl code (think Macro here!).
-
-
-=head1 CAVEATS
-
-See examples/qw.pl for some issues with creating qw based quote-like operators.
-
-The Export parameter -parser will get around some of these problems but then introduces a few new ones! (see TODO)
-
+Usually called via C<use> to install the perl parser hook in the calling package that enables the specified custom
+quote-like sub.
 
 =head1 SEE ALSO
 
 =over 4
 
 =item * L<PerlX::QuoteOperator::URL>
+
+=item * L<Sub::Quotelike>
 
 =back
 
