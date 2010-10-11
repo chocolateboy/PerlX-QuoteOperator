@@ -215,9 +215,9 @@ And this:
 
 Or even this:
 
-    use Inline::V8;
+    use Quote::SQL dbh => DBI->connect(...);
 
-    my $foo = v8 { [ foo: "bar", baz: "quux" ] }->{foo};
+    my $rows = sql { SELECT * FROM foo WHERE bar = ? }->selectall_hashrefs(42);
 
 =head1 EXPORT
 
