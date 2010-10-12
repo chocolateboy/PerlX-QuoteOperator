@@ -20,9 +20,9 @@ sub _isa($$) {
     return Scalar::Util::blessed($ref) ? $ref->isa($class) : ref($ref) eq $class;
 }
 
-# XXX document the caller param
 sub import {
     # XXX keep the trailing caller API for backwards compat with e.g. Junction::Quotelike
+    # use Devel::Deprecate?
     my ($class, $name, $param, $caller) = @_;
 
     # not importing unless name & parameters provided (TBD... test these)
@@ -34,6 +34,7 @@ sub import {
     Carp::confess('-with param is not a CODE ref') unless (_isa($sub, 'CODE'));
 
     my $self = ref($class) ? $class : $class->new;
+
     $caller ||= $param->{ -in } || caller;
 
     # quote-like operator to emulate.  Default is qq// unless -emulate is provided
