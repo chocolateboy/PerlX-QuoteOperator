@@ -4,6 +4,7 @@ examples/qw.pl
 examples/test.pl
 lib/PerlX/QuoteOperator.pm
 lib/PerlX/QuoteOperator/URL.pm
+Makefile.PL
 MANIFEST
 META.yml
 README
@@ -18,4 +19,3 @@ t/precedence.t
 t/qo-URL.t
 t/qw.t
 TODO
-Makefile.PL
