@@ -14,3 +14,5 @@ pod2htmi.tmp
 MANIFEST.bak
 META.yml
 MYMETA.yml
+# no need to version this; Build.PL creates it for dist tasks
+Makefile.PL
