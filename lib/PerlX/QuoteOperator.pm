@@ -51,8 +51,8 @@ sub import {
     # debug or not to debug... that is the question
     $self->{ $debug } = $param->{ -debug } || 0;
 
-    # an optional string template allowing full control over the rewrite.
-    # sprintf is called with the format and the quote as arguments,
+    # an optional sub/string template allowing full control over the rewrite.
+    # the sub/sprintf are called with the format and the quote as arguments,
     # and the result replaces the quote (including the -qtype prefix, delimiters and
     # any embedded escapes) e.g.
     #
@@ -67,7 +67,22 @@ sub import {
     # if no template is supplied, the same mechanism is used with a default template of
     # (%s)
 
-    $self->{ $template } = $param->{ -template } || '(%s)';
+    my $format = $param->{ -template } || '(%s)';
+    my $formatter;
+
+    if (_isa($format, 'CODE')) {
+        $formatter = $format;
+    } else {
+        my $ref = ref $format;
+
+        if ($ref) {
+            croak("invalid template type ($ref): -template value must be a string or CODE ref");
+        } else {
+            $formatter = sub ($) { sprintf($format, $_[0]) };
+        }
+    }
+
+    $self->{ $template } = $formatter;
 
     $self->{ $debug } = $param->{ -debug } || 0;
 
@@ -136,7 +151,11 @@ sub parser {
     # now we have the quoted string: remove all $length of its characters from the input buffer
     # and replace them with the parenthesized, perl-quoted version.
 
-    substr($line, $offset, $length) = sprintf($self->{ $template }, $self->{ $qtype } . $quote);
+    my $replacement = $self->{ $template }->($self->{ $qtype } . $quote);
+
+    croak 'replacement string is undefined' unless (defined $replacement);
+    warn "replacement: $replacement$/" if ($self-> { $debug });
+    substr($line, $offset, $length) = $replacement;
 
     # et voila!
     #
@@ -148,7 +167,7 @@ sub parser {
 
     # pass back to perl
     $self->set_linestr( $line );
-    warn "$line\n" if $self->{ $debug };
+    warn "line: $line$/" if $self->{ $debug };
 
     return; # i.e. return undef
 }
@@ -230,7 +249,7 @@ so much better than:
 
     say uc 'do i have to $hout';
 
-or more apt this:
+or, more apt, this:
 
     say uc('do i have to $hout');
 
@@ -257,7 +276,7 @@ Or even this:
 
 =head1 EXPORT
 
-By default nothing is exported:
+By default, nothing is exported:
 
     use PerlX::QuoteOperator;    # => imports nothing
 
@@ -285,9 +304,32 @@ This is a mandatory parameter.
 
 The name of the package the quote operator should be installed into: defaults to the caller.
 
+=head3 -template
+
+This takes either a string or a callback function.
+
+=over
+
+=item * string
+
+A C<sprintf>-style format string used to wrap/rewrite the quote. This can be used
+to pass around state and other tricks. The replacement expression is given by:
+
+    sprintf($format, $quoted)
+
+where C<$format> is the parameter to the C<-template> option, and C<$quoted> is the quote with the
+C<-qtype> token prefixed (C<qq> by default). If no template is supplied, it defaults to C<(%s)>.
+
+=item * callback
+
+A code ref or anonymous sub that is passed the quoted string and which returns
+the formatted replacment string.
+
+=back
+
 =head3 -debug
 
-If set then the transmogrified line is printed (using C<warn>) so that you can see what C<PerlX::QuoteOperator> has done!
+If set, then the transmogrified line is printed (using C<warn>) so that you can see what C<PerlX::QuoteOperator> has done!
 
     -debug => 1
 

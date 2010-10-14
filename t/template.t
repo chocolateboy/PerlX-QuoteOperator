@@ -1,14 +1,18 @@
 #!perl
 
-use Test::More tests => 7;
+use Test::More tests => 9;
 
-my $quux = 42;
-sub get_quux() { $quux }
+use vars qw($QUUX);
+
+BEGIN { $QUUX = 42 }
+
+sub get_quux() { $QUUX }
+sub multiline($) { "(qq|$/$/$/$/($_[0])$/$/$/$/|)" }
 
 use PerlX::QuoteOperator with_scalar_prefix => {
     -emulate => 'q',
     -with    => sub { is_deeply [ @_ ], [ 42, 'foo { bar } baz' ], 'prefix' },
-    -template => '($quux, %s)'
+    -template => '($QUUX, %s)'
 
 };
 
@@ -17,7 +21,7 @@ with_scalar_prefix {foo { bar } baz};
 use PerlX::QuoteOperator with_scalar_suffix => {
     -emulate => 'q',
     -with    => sub { is_deeply [ @_ ], [ 'foo { bar } baz', 42 ], 'suffix' },
-    -template => '(%s, $quux)'
+    -template => '(%s, $QUUX)'
 };
 
 with_scalar_suffix {foo { bar } baz};
@@ -25,19 +29,19 @@ with_scalar_suffix {foo { bar } baz};
 use PerlX::QuoteOperator with_scalar_circumfix => {
     -emulate => 'q',
     -with    => sub { is_deeply [ @_ ], [ 42, 'foo { bar } baz', 42 ], 'circumfix' },
-    -template => '($quux, %s, $quux)'
+    -template => '($QUUX, %s, $QUUX)'
 };
 
 with_scalar_circumfix {foo { bar } baz};
 
-use PerlX::QuoteOperator with_callback => {
+use PerlX::QuoteOperator with_named_callback => {
     -emulate => 'q',
-    -with    => sub { is_deeply [ @_ ], [ 'foo { bar } baz', 42 ], 'callback' },
+    -with    => sub { is_deeply [ @_ ], [ 'foo { bar } baz', 42 ], 'named callback' },
     -template => '(%s, get_quux())'
 
 };
 
-with_callback {foo { bar } baz};
+with_named_callback {foo { bar } baz};
 
 use PerlX::QuoteOperator with_dereference => {
     -emulate  => 'q',
@@ -56,3 +60,19 @@ use PerlX::QuoteOperator with_duplicate => {
 };
 
 with_duplicate {foo { bar } baz};
+
+use PerlX::QuoteOperator with_callback => {
+    -emulate  => 'q',
+    -with     => sub { is_deeply [ @_ ], [ 'foo { bar } baz', 42, 'foo { bar } baz' ], 'callback' },
+    -template => sub { sprintf('(%s, %d, %1$s)', shift, $QUUX) }
+};
+
+with_callback {foo { bar } baz};
+
+use PerlX::QuoteOperator with_multiline_callback => {
+    -emulate  => 'q',
+    -with     => sub { is_deeply [ @_ ], [ "$/$/$/$/(q{foo { bar } baz})$/$/$/$/" ], 'multiline callback' },
+    -template => \&multiline
+};
+
+with_multiline_callback {foo { bar } baz};
