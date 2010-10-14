@@ -16,7 +16,7 @@ my $builder = Module::Build->new(
     },
 
     requires => {
-        'Devel::Declare'        => 0.005011, # XXX needs this patched applied: http://github.com/rafl/devel-declare/pull/1
+        'Devel::Declare'        => 0.005011, # XXX needs this patch applied: http://github.com/rafl/devel-declare/pull/2
         'LWP::Simple'           => 0,
     },
 

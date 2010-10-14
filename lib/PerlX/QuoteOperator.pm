@@ -2,22 +2,27 @@ package PerlX::QuoteOperator;
 use strict;
 use warnings;
 use 5.008001;
-
-use Carp ();
-use Devel::Declare ();
-use Scalar::Util ();
 use base 'Devel::Declare::Context::Simple';
+use vars qw(@CARP_NOT);
+
+use Carp qw(croak);
+use Devel::Declare ();
+use Scalar::Util qw(blessed);
 
 our $VERSION = '0.02';
+
+BEGIN { @CARP_NOT = (__PACKAGE__, __PACKAGE__ . '::URL', 'Devel::Declare') }
+
 # we subclass Devel::Declare::Context::Simple and store our settings
 # in fields in its hash, so make sure they're namespaced
-our $qtype   = __PACKAGE__ . '::qtype';
-our $debug   = __PACKAGE__ . '::debug';
+our $qtype    = __PACKAGE__ . '::qtype';
+our $template = __PACKAGE__ . '::template';
+our $debug    = __PACKAGE__ . '::debug';
 
 # return true if $ref ISA $class - works with non-references, unblessed references and objects
 sub _isa($$) {
     my ($ref, $class) = @_;
-    return Scalar::Util::blessed($ref) ? $ref->isa($class) : ref($ref) eq $class;
+    return blessed($ref) ? $ref->isa($class) : ref($ref) eq $class;
 }
 
 sub import {
@@ -30,8 +35,8 @@ sub import {
 
     my $sub = $param->{ -with };
 
-    Carp::confess('no -with param supplied') unless ($sub);
-    Carp::confess('-with param is not a CODE ref') unless (_isa($sub, 'CODE'));
+    croak('no -with param supplied') unless (defined $sub);
+    croak('-with param is not a CODE ref') unless (_isa($sub, 'CODE'));
 
     my $self = ref($class) ? $class : $class->new;
 
@@ -40,7 +45,30 @@ sub import {
     # quote-like operator to emulate.  Default is qq// unless -emulate is provided
     $self->{ $qtype } = $param->{ -emulate } || 'qq';
 
+    # quote-like operator to emulate.  Default is qq// unless -emulate is provided
+    $self->{ $qtype } = $param->{ -emulate } || 'qq';
+
     # debug or not to debug... that is the question
+    $self->{ $debug } = $param->{ -debug } || 0;
+
+    # an optional string template allowing full control over the rewrite.
+    # sprintf is called with the format and the quote as arguments,
+    # and the result replaces the quote (including the -qtype prefix, delimiters and
+    # any embedded escapes) e.g.
+    #
+    #     use PerlX::QuoteOperator 'sql', {
+    #         -with     => \&_sql,
+    #         -qtype    => 'q',
+    #         -template => '(%s, get_dbh())'
+    #     };
+    #
+    # sql { SELECT * FROM foo } -> sql(q{SELECT * FROM foo}, get_dbh())
+    #
+    # if no template is supplied, the same mechanism is used with a default template of
+    # (%s)
+
+    $self->{ $template } = $param->{ -template } || '(%s)';
+
     $self->{ $debug } = $param->{ -debug } || 0;
 
     # Create D::D trigger for $name in calling program
@@ -78,13 +106,19 @@ sub parser {
 
     my $offset = $self->offset;
 
-    # toke_scan_str_flags() uses perl's builtin quote parser to extract a delimited
-    # string without inserting it into the parse tree; the two boolean flags after
-    # the offset ensure the quote 1) preserves any backslashes used to escape embedded
-    # delimiters and 2) includes the outer delimiters - i.e.
+    # toke_scan_str() uses perl's builtin quote parser to extract a delimited
+    # string without inserting it into the parse tree; the two options
+    # ensure the quote 1) includes the outer delimiters /quotation marks
+    # and 2) preserves any backslashes used to escape embedded delimiters i.e.
     # the quote is returned verbatim
 
-    my $length = Devel::Declare::toke_scan_str_flags($offset, 1, 1);
+    my $length = Devel::Declare::toke_scan_str($offset, keep_delimiters => 1, keep_escapes => 1);
+
+    # trap accidental uses of myQuote q{...}
+    if ($length < 0) { # XXX B::Compiling could be used here to show the file/line
+        substr($line, $offset, 0) = '(HERE -->)';
+        croak "malformed quote: $line";
+    }
 
     # now 1) grab the quote from the temp variable perl stores it in internally,
     # and 2) clear the temp variable so perl doesn't think it has a pending token
@@ -102,7 +136,7 @@ sub parser {
     # now we have the quoted string: remove all $length of its characters from the input buffer
     # and replace them with the parenthesized, perl-quoted version.
 
-    substr($line, $offset, $length) = sprintf('(%s%s)', $self->{ $qtype }, $quote);
+    substr($line, $offset, $length) = sprintf($self->{ $template }, $self->{ $qtype } . $quote);
 
     # et voila!
     #
