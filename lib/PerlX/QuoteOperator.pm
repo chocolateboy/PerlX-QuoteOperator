@@ -189,7 +189,7 @@ Version 0.02
 
 =head1 SYNOPSIS
 
-Create a quote-like operator which convert text to uppercase:
+Create a quote-like operator which converts text to uppercase:
 
     use PerlX::QuoteOperator quc => {
         -emulate => 'q', 
