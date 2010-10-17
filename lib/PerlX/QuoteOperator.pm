@@ -322,10 +322,13 @@ C<-qtype> token prefixed (C<qq> by default). If no template is supplied, it defa
 
 =item * callback
 
-A code ref or anonymous sub that is passed the quoted string and which returns
-the formatted replacment string.
+A code ref or anonymous sub that is passed the quoted string (again, with the C<-qtype> token prefixed)
+and which returns the formatted replacment string.
 
 =back
+
+Note that the replacement string should usually be parenthesized to ensure that custom quote-like operators
+have the same precedence as the builtins.
 
 =head3 -debug
 
@@ -335,7 +338,7 @@ If set, then the transmogrified line is printed (using C<warn>) so that you can 
 
 Default:  No debug.
 
-=head1 FUNCTIONS
+=head1 METHODS
 
 =head2 import
 
@@ -345,6 +348,8 @@ quote-like sub.
 =head1 SEE ALSO
 
 =over 4
+
+=item * L<Filter::QuasiQuote>
 
 =item * L<Junction::Quotelike>
 
